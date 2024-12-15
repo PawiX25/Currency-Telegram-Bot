@@ -535,11 +535,13 @@ Available commands:
 /start - Start the bot
 /help - Show this help message
 /currencies - List all supported currencies
+/rate FROM TO - Check exchange rate between two currencies
 
 Usage examples:
 - Simple conversion to EUR: "100 USD" or "50 £"
 - Direct conversion: "100 USD to JPY" or "50 EUR in GBP"
 - Multiple conversions in one message: "I have 100 USD and 50 EUR"
+- Check rate: "/rate USD EUR" or "/rate PLN GBP"
 """
     await update.message.reply_text(help_text)
 
@@ -624,12 +626,49 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_to_message_id=update.message.message_id
         )
 
+async def rate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args or len(context.args) != 2:
+        await update.message.reply_text(
+            "Please use the format: /rate FROM TO\nExample: /rate USD EUR"
+        )
+        return
+
+    from_cur = await normalize_currency(context.args[0])
+    to_cur = await normalize_currency(context.args[1])
+
+    if not from_cur or not to_cur:
+        await update.message.reply_text(
+            "Invalid currency codes. Use /currencies to see available options."
+        )
+        return
+
+    rates = await get_rates()
+    if not rates:
+        await update.message.reply_text("Sorry, couldn't fetch exchange rates at the moment.")
+        return
+
+    try:
+        if from_cur == "EUR":
+            rate = Decimal(str(rates[to_cur]))
+        elif to_cur == "EUR":
+            rate = Decimal(1) / Decimal(str(rates[from_cur]))
+        else:
+            eur_rate = Decimal(1) / Decimal(str(rates[from_cur]))
+            rate = eur_rate * Decimal(str(rates[to_cur]))
+
+        await update.message.reply_text(
+            f"Current rate:\n1 {from_cur} = {rate:.4f} {to_cur}"
+        )
+    except (KeyError, ValueError):
+        await update.message.reply_text("Error calculating exchange rate.")
+
 def main():
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("currencies", list_currencies))
+    application.add_handler(CommandHandler("rate", rate_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     application.run_polling()
