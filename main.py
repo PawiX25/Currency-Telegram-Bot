@@ -524,6 +524,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Hi! I'll help convert currencies. Just mention an amount and currency like '10 PLN' or '5 bucks' and I'll convert it to EUR."
     )
 
+async def list_currencies(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    unique_currencies = sorted(set(currency_synonyms.values()))
+    message = "Supported currencies:\n\n" + ", ".join(unique_currencies)
+    await update.message.reply_text(message)
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     author = update.message.from_user.first_name
@@ -583,6 +588,7 @@ def main():
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("currencies", list_currencies))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     application.run_polling()
