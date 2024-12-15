@@ -496,6 +496,20 @@ currency_synonyms = {
     "zwl": "ZWL", "zimbabwean dollar": "ZWL"
 }
 
+currency_synonyms.update({
+    # Cryptocurrencies
+    "btc": "BTC", "bitcoin": "BTC", "₿": "BTC",
+    "eth": "ETH", "ethereum": "ETH", "ether": "ETH",
+    "usdt": "USDT", "tether": "USDT",
+    "bnb": "BNB", "binance coin": "BNB",
+    "xrp": "XRP", "ripple": "XRP",
+    "ada": "ADA", "cardano": "ADA",
+    "doge": "DOGE", "dogecoin": "DOGE",
+    "sol": "SOL", "solana": "SOL",
+    "dot": "DOT", "polkadot": "DOT",
+    "usdc": "USDC", "usd coin": "USDC",
+})
+
 # Cache for exchange rates
 rates_cache = {"timestamp": None, "rates": None}
 
@@ -507,10 +521,37 @@ async def get_rates():
     
     try:
         response = requests.get("https://api.exchangerate-api.com/v4/latest/EUR")
-        data = response.json()
-        rates_cache["rates"] = data["rates"]
+        fiat_rates = response.json()["rates"]
+        
+        crypto_response = requests.get("https://api.coingecko.com/api/v3/simple/price", params={
+            "ids": "bitcoin,ethereum,tether,binancecoin,ripple,cardano,dogecoin,solana,polkadot,usd-coin",
+            "vs_currencies": "eur"
+        })
+        crypto_data = crypto_response.json()
+        
+        crypto_mapping = {
+            "bitcoin": "BTC",
+            "ethereum": "ETH",
+            "tether": "USDT",
+            "binancecoin": "BNB",
+            "ripple": "XRP",
+            "cardano": "ADA",
+            "dogecoin": "DOGE",
+            "solana": "SOL",
+            "polkadot": "DOT",
+            "usd-coin": "USDC"
+        }
+        
+        crypto_rates = {}
+        for gecko_id, code in crypto_mapping.items():
+            if gecko_id in crypto_data:
+                crypto_rates[code] = 1 / crypto_data[gecko_id]["eur"]
+        
+        combined_rates = {**fiat_rates, **crypto_rates}
+        rates_cache["rates"] = combined_rates
         rates_cache["timestamp"] = datetime.now()
-        return rates_cache["rates"]
+        return combined_rates
+        
     except Exception as e:
         print(f"Error fetching rates: {e}")
         return None
@@ -538,10 +579,12 @@ Available commands:
 /rate FROM TO - Check exchange rate between two currencies
 
 Usage examples:
-- Simple conversion to EUR: "100 USD" or "50 £"
-- Direct conversion: "100 USD to JPY" or "50 EUR in GBP"
-- Multiple conversions in one message: "I have 100 USD and 50 EUR"
-- Check rate: "/rate USD EUR" or "/rate PLN GBP"
+- Simple conversion to EUR: "100 USD" or "50 £" or "0.5 BTC"
+- Direct conversion: "100 USD to JPY" or "1 BTC in ETH"
+- Multiple conversions in one message: "I have 100 USD and 0.1 BTC"
+- Check rate: "/rate USD EUR" or "/rate BTC ETH"
+
+Supported cryptocurrencies: BTC, ETH, USDT, BNB, XRP, ADA, DOGE, SOL, DOT, USDC
 """
     await update.message.reply_text(help_text)
 
