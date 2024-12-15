@@ -1,11 +1,13 @@
+import os
 from telegram import Update
 from telegram.ext import Application, MessageHandler, CommandHandler, ContextTypes, filters
 import re
 from decimal import Decimal
-import requests
+import aiohttp
 from datetime import datetime, timedelta
+import logging
 
-TELEGRAM_TOKEN = "YOUR_TELEGRAM"
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 
 currency_synonyms = {
     # Euro (EUR)
@@ -522,14 +524,16 @@ async def get_rates():
         return rates_cache["rates"]
     
     try:
-        response = requests.get("https://api.exchangerate-api.com/v4/latest/EUR")
-        fiat_rates = response.json()["rates"]
-        
-        crypto_response = requests.get("https://api.coingecko.com/api/v3/simple/price", params={
-            "ids": "bitcoin,ethereum,tether,binancecoin,ripple,cardano,dogecoin,solana,polkadot,usd-coin",
-            "vs_currencies": "eur"
-        })
-        crypto_data = crypto_response.json()
+        async with aiohttp.ClientSession() as session:
+            async with session.get("https://api.exchangerate-api.com/v4/latest/EUR") as response:
+                data = await response.json()
+                fiat_rates = data["rates"]
+            
+            async with session.get("https://api.coingecko.com/api/v3/simple/price", params={
+                "ids": "bitcoin,ethereum,tether,binancecoin,ripple,cardano,dogecoin,solana,polkadot,usd-coin",
+                "vs_currencies": "eur"
+            }) as crypto_response:
+                crypto_data = await crypto_response.json()
         
         crypto_mapping = {
             "bitcoin": "BTC",
@@ -555,12 +559,15 @@ async def get_rates():
         return combined_rates
         
     except Exception as e:
-        print(f"Error fetching rates: {e}")
+        logging.error(f"Error fetching rates: {e}")
         return None
 
 async def normalize_currency(raw_cur: str):
     raw_cur = raw_cur.lower().strip()
-    return currency_synonyms.get(raw_cur)
+    code = currency_synonyms.get(raw_cur)
+    if not code:
+        logging.warning(f"Currency not recognized: {raw_cur}")
+    return code
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -777,6 +784,7 @@ def main():
     application.add_handler(CommandHandler("getdefault", get_default))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
+    logging.basicConfig(level=logging.INFO)
     application.run_polling()
 
 if __name__ == "__main__":
