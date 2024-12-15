@@ -513,6 +513,8 @@ currency_synonyms.update({
 # Cache for exchange rates
 rates_cache = {"timestamp": None, "rates": None}
 
+user_preferences = {}
+
 async def get_rates():
     if (rates_cache["timestamp"] and 
         datetime.now() - rates_cache["timestamp"] < timedelta(hours=1) and 
@@ -577,16 +579,51 @@ Available commands:
 /help - Show this help message
 /currencies - List all supported currencies
 /rate FROM TO - Check exchange rate between two currencies
+/setdefault FROM TO - Set default currencies for conversion
+/getdefault - Get your default currencies
 
 Usage examples:
 - Simple conversion to EUR: "100 USD" or "50 £" or "0.5 BTC"
 - Direct conversion: "100 USD to JPY" or "1 BTC in ETH"
 - Multiple conversions in one message: "I have 100 USD and 0.1 BTC"
 - Check rate: "/rate USD EUR" or "/rate BTC ETH"
+- Set default currencies: "/setdefault USD EUR"
+- Get default currencies: "/getdefault"
 
 Supported cryptocurrencies: BTC, ETH, USDT, BNB, XRP, ADA, DOGE, SOL, DOT, USDC
 """
     await update.message.reply_text(help_text)
+
+async def set_default(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 2:
+        await update.message.reply_text(
+            "Please use the format: /setdefault FROM TO\nExample: /setdefault USD EUR"
+        )
+        return
+    from_cur = await normalize_currency(context.args[0])
+    to_cur = await normalize_currency(context.args[1])
+    if not from_cur or not to_cur:
+        await update.message.reply_text(
+            "Invalid currency codes. Use /currencies to see available options."
+        )
+        return
+    user_id = update.message.from_user.id
+    user_preferences[user_id] = {'from': from_cur, 'to': to_cur}
+    await update.message.reply_text(
+        f"Default currencies set to: {from_cur} to {to_cur}"
+    )
+
+async def get_default(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    prefs = user_preferences.get(user_id)
+    if prefs:
+        await update.message.reply_text(
+            f"Your default currencies are: {prefs['from']} to {prefs['to']}"
+        )
+    else:
+        await update.message.reply_text(
+            "You have not set default currencies. Use /setdefault FROM TO to set them."
+        )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
@@ -601,6 +638,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not rates:
         await update.message.reply_text("Sorry, couldn't fetch exchange rates at the moment.")
         return
+
+    user_id = update.message.from_user.id
+    prefs = user_preferences.get(user_id)
+    if prefs:
+        amount_pattern = r'(\d+(?:\.\d+)?)'
+        matches = re.findall(amount_pattern, text)
+        if matches:
+            amount_str = matches[0]
+            amount = Decimal(amount_str)
+            from_code = prefs['from']
+            to_code = prefs['to']
+            if from_code != "EUR":
+                amount_in_eur = amount / Decimal(str(rates[from_code]))
+            else:
+                amount_in_eur = amount
+            if to_code != "EUR":
+                final_amount = amount_in_eur * Decimal(str(rates[to_code]))
+            else:
+                final_amount = amount_in_eur
+            await update.message.reply_text(
+                f"{amount_str} {from_code} = {final_amount:.2f} {to_code}",
+                reply_to_message_id=update.message.message_id
+            )
+            return
 
     if direct_matches:
         for match in direct_matches:
@@ -712,6 +773,8 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("currencies", list_currencies))
     application.add_handler(CommandHandler("rate", rate_command))
+    application.add_handler(CommandHandler("setdefault", set_default))
+    application.add_handler(CommandHandler("getdefault", get_default))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     application.run_polling()
